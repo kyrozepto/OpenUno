@@ -7,13 +7,24 @@ const int servoPin = 6;
 
 // Servo positions
 const int SERVO_LOCKED_POS = 0;    // Position when door is locked
-const int SERVO_UNLOCKED_POS = 90; // Default/unlocked position
+const int SERVO_HALFLOCKED_POS = 90;
+const int SERVO_UNLOCKED_POS = 180; // Default/unlocked position
 const int SERVO_IDLE_AWAY_POS = 180; // Position when no object is near and door is unlocked
+
+// Distance thresholds
+const int NEAR_DISTANCE = 30;     // Near distance threshold (cm)
+const int MID_DISTANCE = 60;      // Mid distance threshold (cm)
+const int FAR_DISTANCE = 100;     // Far distance threshold (cm)
+
+// Buzzer frequencies for different distances
+const int NEAR_FREQ = 1000;
+const int MID_FREQ = 500;
+const int FAR_FREQ = 200;
 
 long duration;
 int distance;
 Servo myServo;
-boolean doorLocked = false; // State variable to track if the door is locked
+boolean systemActive = true;  // System starts in active state
 
 void setup() {
   pinMode(trigPin, OUTPUT);
@@ -21,65 +32,67 @@ void setup() {
   pinMode(buzzer, OUTPUT);
 
   myServo.attach(servoPin);
-  myServo.write(SERVO_UNLOCKED_POS); // Start with door unlocked
+  myServo.write(SERVO_UNLOCKED_POS);
 
-  Serial.begin(9600); // Baud rate for communication
-  Serial.println("Smart Door Lock System Initialized");
-  Serial.println("Door current state: UNLOCKED");
+  Serial.begin(9600);
+  Serial.println("Smart Door Security System Initialized");
+  Serial.println("System current state: ACTIVE");
 }
 
 void loop() {
-  // --- Ultrasonic Sensor Reading ---
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
-
-  duration = pulseIn(echoPin, HIGH);
-  distance = duration * 0.034 / 2;
-
-  // Serial.print("Jarak: "); // Optional: uncomment for debugging distance
-  // Serial.print(distance);
-  // Serial.print(" cm. Door Locked: ");
-  // Serial.println(doorLocked ? "YES" : "NO");
-
-  // --- Locking Logic ---
-  if (distance <= 5 && !doorLocked) {
-    Serial.println("Object detected close! Locking door.");
-    for (int i = 0; i < 3; i++) {
-      tone(buzzer, 1000); // Sharp beep for locking
-      delay(100);
-      noTone(buzzer);
-      delay(100);
-    }
-    myServo.write(SERVO_LOCKED_POS);
-    doorLocked = true;
-    Serial.println("Door current state: LOCKED");
-  }
-  // --- Behavior when door is NOT locked ---
-  else if (!doorLocked) {
-    if (distance < 15) {
-      myServo.write(SERVO_UNLOCKED_POS);
-    } else {
-      myServo.write(SERVO_IDLE_AWAY_POS);
-      noTone(buzzer);
-    }
-  }
-
-  // --- Serial Command Handling for Unlocking ---
+  // Check for serial commands
   if (Serial.available() > 0) {
     char command = Serial.read();
-    if (command == 'U' && doorLocked) {
-      Serial.println("Unlock command ('U') received via Serial!");
+    if (command == 'D') {  // Deactivate
+      systemActive = false;
       myServo.write(SERVO_UNLOCKED_POS);
-      doorLocked = false;
-      tone(buzzer, 1500, 200); // Higher pitch, short beep for unlock
-      Serial.println("Door current state: UNLOCKED by face recognition");
-    } else if (command == 'U' && !doorLocked) {
-      Serial.println("Unlock command ('U') received, but door is already unlocked.");
+      noTone(buzzer);
+      Serial.println("System DEACTIVATED - Face detected");
+    }
+    else if (command == 'A') {  // Activate
+      systemActive = true;
+      Serial.println("System ACTIVATED - No face detected");
     }
   }
 
-  delay(200); // General delay for the loop
+  // Only process distance and activate servo/buzzer if system is active
+  if (systemActive) {
+    // Measure distance
+    digitalWrite(trigPin, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
+
+    duration = pulseIn(echoPin, HIGH);
+    distance = duration * 0.034 / 2;
+
+    // Debug distance (uncomment if needed)
+    // Serial.print("Distance: ");
+    // Serial.print(distance);
+    // Serial.println(" cm");
+
+    // Handle different distance ranges with variable buzzer frequencies
+    if (distance <= NEAR_DISTANCE) {
+      tone(buzzer, NEAR_FREQ, 100);
+      myServo.write(SERVO_LOCKED_POS);
+      Serial.println("Object very close - High frequency alert");
+    }
+    else if (distance <= MID_DISTANCE) {
+      tone(buzzer, MID_FREQ, 100);
+      myServo.write(SERVO_HALFLOCKED_POS);
+      Serial.println("Object at medium range - Medium frequency alert");
+    }
+    else if (distance <= FAR_DISTANCE) {
+      tone(buzzer, FAR_FREQ, 100);
+      myServo.write(SERVO_UNLOCKED_POS);
+      Serial.println("Object at far range - Low frequency alert");
+    }
+    else {
+      noTone(buzzer);
+      myServo.write(SERVO_IDLE_AWAY_POS);
+    }
+  }
+
+  delay(100);  // Small delay for stability
 }
